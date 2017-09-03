@@ -1,0 +1,62 @@
+#!/bin/sh
+
+echo "Content-type: text/plain"
+echo ""
+
+source func.cgi
+
+# Adjust path so 3rd party binaries can be found
+export PATH=$PATH:/media/mmcblk0p2/data/usr/bin:/media/mmcblk0p2/data/bin:/media/mmcblk0p2/data/sbin
+
+if [ -n "$F_cmd" ]; then
+  case "$F_cmd" in
+  start) 
+    pid=$(pidof trigger-alarm)
+    if [ -n "$pid" ]; then
+       echo 'Alarm already triggered!'
+       exit
+    fi
+
+    echo 'Alarm triggered!'
+    exec >&-
+    trigger-alarm &
+    exit
+    ;;
+  stop)
+    pid=$(pidof trigger-alarm)
+    if [ -z "$pid" ]; then
+       echo "Alarm not running"
+       exit
+    fi
+
+    # Send SIGTERM to both parent and child processes so SIGTERM is processed ASAP
+    kill -s TERM "$pid" && pkill -TERM -P "$pid"
+    result=$?
+    if [ "$result" -eq 0 ]; then
+       echo 'System deactivated!'
+       exit
+    else
+       # First kill failed, so try again
+       echo "SIGTERM failed. Return code $result"
+       echo "Forcibly killing..."
+
+       subpid=$(pidof pcm_play-48k)
+       kill "$pid" "$subpid"
+       result=$?
+
+       if [ "$result" -eq 0 ]; then
+          echo 'System deactivated!'
+          exit
+       else
+          # Disable speaker manually
+          gpio_ms1 -n 7 -m 1 -v 0
+          echo "Kill failed. Speaker disabled manually. Return code $result"
+          exit
+       fi
+    fi
+    ;;
+  *)
+    echo "Unsupported command '$F_cmd'"
+    ;;
+  esac
+fi
